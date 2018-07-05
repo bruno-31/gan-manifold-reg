@@ -22,7 +22,7 @@ python train_cifar.py
 
 ## Results
 
-Here is a comparison of different models using standard architectures (1000 labels on SVHN, and 4000 labels on CIFAR):
+Here is a comparison of different models using standard architectures on several datasets (SVHN and CIFAR-10):
 
 CIFAR(% errors) | 1000 labels| 4000 labels
 -- | -- | --
@@ -34,7 +34,7 @@ ALI | 19.98 +/- 0.89 | 17.99 +/- 1.62
 Bad GAN  |  | 14.41 +/- 0.30
 Ours | **16.37 +/- 0.42**| **14.34 +/- 0.17**
 
-Method | SVHN (% errors) | CIFAR (% errors)
+SVHN (% errors)  | 500 labels | 1000 labels
 -- | -- | --
 Pi model |7.05 +/- 0.30| 5.43 +/- 0.25
 Mean Teacher |4.35 +/- 0.50 | 3.95 +/- 0.19
