@@ -14,10 +14,10 @@ import os
 flags = tf.app.flags
 flags.DEFINE_integer('gpu', 0, 'gpu [0]')
 flags.DEFINE_integer('batch_size', 25, "batch size [25]")
-flags.DEFINE_string('data_dir', '/tmp/data/cifar-10-python/','data directory')
+flags.DEFINE_string('data_dir', './data/cifar-10-python/','data directory')
 flags.DEFINE_string('logdir', './log/cifar', 'log directory')
 flags.DEFINE_integer('seed', 10, 'seed numpy')
-flags.DEFINE_integer('labeled', 100, 'labeled data per class [100]')
+flags.DEFINE_integer('labeled', 400, 'labeled data per class [100]')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.0003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
@@ -25,6 +25,12 @@ flags.DEFINE_float('ma_decay', 0.9999, 'exponential moving average for inference
 flags.DEFINE_integer('decay_start', 1200, 'start learning rate decay [1200]')
 flags.DEFINE_integer('epoch', 1400, 'epochs [1400]')
 flags.DEFINE_boolean('validation', False, 'validation [False]')
+flags.DEFINE_boolean('clamp', False, 'validation [False]')
+flags.DEFINE_boolean('abs', False, 'validation [False]')
+
+flags.DEFINE_float('lmin', 1.0, 'unlabeled weight [1.]')
+flags.DEFINE_float('lmax', 1.0, 'unlabeled weight [1.]')
+
 flags.DEFINE_integer('nabla', 1, 'choose regularization [1]')
 flags.DEFINE_float('gamma', 0.001, 'weight regularization')
 flags.DEFINE_float('epsilon', 20., 'displacement along data manifold')
@@ -145,8 +151,20 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        manifold = tf.reduce_sum(tf.sqrt(tf.square(logits_gen - logits_gen_adv) + 1e-8), axis=1)
-        j_loss = tf.reduce_mean(manifold)
+        # manifold = tf.reduce_sum(tf.sqrt(tf.square(logits_gen - logits_gen_adv) + 1e-8), axis=1)
+
+        manifold = tf.sqrt(tf.reduce_sum(tf.square(logits_gen - logits_gen_adv), axis=1))
+
+        if FLAGS.clamp:
+            print('clamped mode')
+            if FLAGS.abs:
+                print('abs_clamp')
+                manifold_clamped = tf.abs(manifold - tf.clip_by_value(manifold, FLAGS.lmin, FLAGS.lmax))
+            else:
+                manifold_clamped = tf.square(manifold - tf.clip_by_value(manifold, FLAGS.lmin, FLAGS.lmax))
+            j_loss = tf.reduce_mean(manifold_clamped)
+        else:
+            j_loss = tf.reduce_mean(manifold)
 
         if FLAGS.nabla == 1:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + FLAGS.gamma * j_loss
