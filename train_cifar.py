@@ -218,6 +218,7 @@ def main(_):
         with tf.name_scope('discriminator'):
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
             tf.summary.scalar('kl_loss', j_loss, ['dis'])
+            tf.summary.scalar('kl_loss', tf.reduce_mean(manifold), ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
