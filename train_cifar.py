@@ -255,8 +255,8 @@ def main(_):
     init_feed_dict = {inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True}
 
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_epoch, summary_op=None, save_model_secs=0,
-                             init_op=op,init_feed_dict=init_feed_dict)
-    sv.saver(max_to_keep = 2000)
+                             init_op=op,init_feed_dict=init_feed_dict,max_to_keep=2000)
+    # sv.saver(max_to_keep = 2000)
     '''//////training //////'''
     print('start training')
     with sv.managed_session() as sess:
