@@ -188,6 +188,9 @@ def main(_):
         accuracy_classifier = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
 
+    # log condition number
+    # mz =
+
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
         tvars = tf.trainable_variables()
@@ -231,6 +234,8 @@ def main(_):
             tf.summary.scalar('accuracy_test_moving_average', acc_test_pl_ema, ['epoch'])
             tf.summary.scalar('accuracy_test_raw', acc_test_pl, ['epoch'])
             tf.summary.scalar('learning_rate', lr_pl, ['epoch'])
+            # tf.summary.scalar('log condition number', log_condition, ['gen'])
+
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -251,7 +256,7 @@ def main(_):
 
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_epoch, summary_op=None, save_model_secs=0,
                              init_op=op,init_feed_dict=init_feed_dict)
-
+    sv.saver(max_to_keep = 2000)
     '''//////training //////'''
     print('start training')
     with sv.managed_session() as sess:
@@ -361,7 +366,7 @@ def main(_):
             sess.run(inc_global_epoch)
 
             # save snapshots of model
-            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == FLAGS.epoch-1):
+            if ((epoch % FLAGS.freq_save == 0)) | (epoch == FLAGS.epoch-1):
                 string = 'model-' + str(epoch)
                 save_path = os.path.join(FLAGS.logdir, string)
                 sv.saver.save(sess, save_path)
