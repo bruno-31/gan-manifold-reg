@@ -265,6 +265,7 @@ def main(_):
         print('Starting training from epoch :%d, step:%d \n'%(sess.run(global_epoch),sess.run(global_step)))
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
+        sv.saver(max_to_keep=2000)
 
         while not sv.should_stop():
             epoch = sess.run(global_epoch)
