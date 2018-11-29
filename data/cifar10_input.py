@@ -7,7 +7,7 @@ import tarfile
 import shutil
 import numpy as np
 
-import urllib3
+# import urllib3
 
 
 _shuffle = True

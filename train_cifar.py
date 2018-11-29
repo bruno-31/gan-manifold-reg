@@ -3,7 +3,7 @@ import time
 
 import numpy as np
 import tensorflow as tf
-
+import nn
 from data import cifar10_input
 from cifar_gan import discriminator, generator
 import sys
@@ -14,10 +14,11 @@ import os
 flags = tf.app.flags
 flags.DEFINE_integer('gpu', 0, 'gpu [0]')
 flags.DEFINE_integer('batch_size', 25, "batch size [25]")
+# flags.DEFINE_string('data_dir', '/tmp/data/cifar-10-python/','data directory')
 flags.DEFINE_string('data_dir', './data/cifar-10-python/','data directory')
 flags.DEFINE_string('logdir', './log/cifar', 'log directory')
 flags.DEFINE_integer('seed', 10, 'seed numpy')
-flags.DEFINE_integer('labeled', 400, 'labeled data per class [100]')
+flags.DEFINE_integer('labeled', 100, 'labeled data per class [100]')
 flags.DEFINE_float('learning_rate', 0.0003, 'learning_rate[0.0003]')
 flags.DEFINE_float('unl_weight', 1.0, 'unlabeled weight [1.]')
 flags.DEFINE_float('lbl_weight', 1.0, 'unlabeled weight [1.]')
@@ -25,11 +26,11 @@ flags.DEFINE_float('ma_decay', 0.9999, 'exponential moving average for inference
 flags.DEFINE_integer('decay_start', 1200, 'start learning rate decay [1200]')
 flags.DEFINE_integer('epoch', 1400, 'epochs [1400]')
 flags.DEFINE_boolean('validation', False, 'validation [False]')
-flags.DEFINE_boolean('clamp', False, 'validation [False]')
-flags.DEFINE_boolean('abs', False, 'validation [False]')
 
-flags.DEFINE_float('lmin', 1.0, 'unlabeled weight [1.]')
-flags.DEFINE_float('lmax', 1.0, 'unlabeled weight [1.]')
+flags.DEFINE_boolean('augmentation', True, 'validation [False]')
+flags.DEFINE_integer('translate', 2, 'translate')
+flags.DEFINE_boolean('zca', False, 'validation [False]')
+flags.DEFINE_boolean('gan_aug', False, 'validation [False]')
 
 flags.DEFINE_integer('nabla', 1, 'choose regularization [1]')
 flags.DEFINE_float('gamma', 0.001, 'weight regularization')
@@ -40,7 +41,6 @@ flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [50]'
 flags.DEFINE_integer('freq_test', 1, 'frequency test [500]')
 flags.DEFINE_integer('freq_save', 10, 'frequency saver epoch[50]')
 FLAGS = flags.FLAGS
-
 
 def get_getter(ema):
     def ema_getter(getter, name, *args, **kwargs):
@@ -58,6 +58,25 @@ def display_progression_epoch(j, id_max):
 
 def linear_decay(decay_start, decay_end, epoch):
     return min(-1 / (decay_end - decay_start) * epoch + 1 + decay_start / (decay_end - decay_start),1)
+
+
+def zca_whiten(X, Y, epsilon=1e-5):
+    X = X.reshape([-1, 32 * 32 * 3])
+    Y = Y.reshape([-1, 32 * 32 * 3])
+    # compute the covariance of the image data
+    cov = np.dot(X.T, X) / X.shape[0]
+    # singular value decomposition
+    U, S, V = np.linalg.svd(cov)
+    # build the ZCA matrix
+    zca_matrix = np.dot(U, np.dot(np.diag(1.0 / np.sqrt(S + epsilon)), U.T))
+
+    # transform the image data       zca_matrix is (3072,3072)
+    X_white = np.dot(X, zca_matrix)
+    Y_white = np.dot(Y, zca_matrix)
+
+    X_white = X_white.reshape(-1, 32, 32, 3)
+    Y_white = Y_white.reshape([-1, 32, 32, 3])
+    return X_white, Y_white
 
 
 def main(_):
@@ -78,6 +97,30 @@ def main(_):
     # load CIFAR-10
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
     testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+
+    if FLAGS.zca:
+        print('Starting preprocessing')
+        begin = time.time()
+        m = np.mean(trainx, axis=0)
+        print(np.min(trainx), np.max(trainx))
+        trainx -= m
+        testx -= m
+        trainx, testx = zca_whiten(trainx, testx, epsilon=1e-8)
+        print('range zca:')
+        print(np.min(trainx), np.max(trainx))
+        print(np.min(testx), np.max(testx))
+        mix,max = np.min(np.concatenate([trainx,testx])),np.max(np.concatenate([trainx,testx]))
+        trainx-=mix
+        trainx/=(max-mix)
+        testx-=mix
+        testx/=(max-mix)
+        trainx=2.*trainx-1.
+        testx=2.*testx-1.
+        print('range rescaled')
+        print(np.min(trainx), np.max(trainx))
+        print(np.min(testx), np.max(testx))
+        print('Preprocessing done in : %ds' % (time.time() - begin))
+
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
 
@@ -132,10 +175,20 @@ def main(_):
     gen_inp_pert = generator(random_z_pert, is_training=is_training_pl,  init=False, reuse=True)
     gen_adv = gen_inp + FLAGS.epsilon * tf.nn.l2_normalize(gen_inp_pert-gen_inp, dim=[1, 2, 3])
 
+    if FLAGS.augmentation:
+        print('augmentation')
+        inp_aug=nn.flip_randomly(inp, True, False, is_training_pl)
+        inp_aug=nn.random_translate(inp_aug, FLAGS.translate, is_training_pl)
+        unl_aug=nn.flip_randomly(unl, True, False, is_training_pl)
+        unl_aug=nn.random_translate(unl_aug, FLAGS.translate, is_training_pl)
+    else:
+        unl_aug=unl
+        inp_aug=inp
+
     discriminator(unl, is_training_pl, init=True)
-    logits_lab, _ = discriminator(inp, is_training_pl, init=False, reuse=True)
+    logits_lab, _ = discriminator(inp_aug, is_training_pl, init=False, reuse=True)
     logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False, reuse=True)
-    logits_unl, layer_real = discriminator(unl, is_training_pl, init=False, reuse=True)
+    logits_unl, layer_real = discriminator(unl_aug, is_training_pl, init=False, reuse=True)
     logits_gen_adv, _ = discriminator(gen_adv, is_training_pl, init=False, reuse=True)
 
     with tf.name_scope('loss_functions'):
@@ -151,20 +204,8 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        # manifold = tf.reduce_sum(tf.sqrt(tf.square(logits_gen - logits_gen_adv) + 1e-8), axis=1)
-
-        manifold = tf.sqrt(tf.reduce_sum(tf.square(logits_gen - logits_gen_adv), axis=1))
-
-        if FLAGS.clamp:
-            print('clamped mode')
-            if FLAGS.abs:
-                print('abs_clamp')
-                manifold_clamped = tf.abs(manifold - tf.clip_by_value(manifold, FLAGS.lmin, FLAGS.lmax))
-            else:
-                manifold_clamped = tf.square(manifold - tf.clip_by_value(manifold, FLAGS.lmin, FLAGS.lmax))
-            j_loss = tf.reduce_mean(manifold_clamped)
-        else:
-            j_loss = tf.reduce_mean(manifold)
+        manifold = tf.reduce_sum(tf.sqrt(tf.square(logits_gen - logits_gen_adv) + 1e-8), axis=1)
+        j_loss = tf.reduce_mean(manifold)
 
         if FLAGS.nabla == 1:
             loss_dis = FLAGS.unl_weight * loss_unl + FLAGS.lbl_weight * loss_lab + FLAGS.gamma * j_loss
@@ -187,9 +228,6 @@ def main(_):
         correct_pred = tf.equal(tf.cast(tf.argmax(logits_lab, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_classifier = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-
-    # log condition number
-    # mz =
 
     with tf.name_scope('optimizers'):
         # control op dependencies for batch norm and trainable variables
@@ -221,21 +259,20 @@ def main(_):
         with tf.name_scope('discriminator'):
             tf.summary.scalar('loss_discriminator', loss_dis, ['dis'])
             tf.summary.scalar('kl_loss', j_loss, ['dis'])
-            tf.summary.scalar('kl_loss', tf.reduce_mean(manifold), ['dis'])
 
         with tf.name_scope('generator'):
             tf.summary.scalar('loss_generator', loss_gen, ['gen'])
 
         with tf.name_scope('images'):
             tf.summary.image('gen_images', gen_inp, 10, ['image'])
+            tf.summary.image('inp_images', inp_aug, 10, ['image'])
+
 
         with tf.name_scope('epoch'):
             tf.summary.scalar('accuracy_train', acc_train_pl, ['epoch'])
             tf.summary.scalar('accuracy_test_moving_average', acc_test_pl_ema, ['epoch'])
             tf.summary.scalar('accuracy_test_raw', acc_test_pl, ['epoch'])
             tf.summary.scalar('learning_rate', lr_pl, ['epoch'])
-            # tf.summary.scalar('log condition number', log_condition, ['gen'])
-
 
         sum_op_dis = tf.summary.merge_all('dis')
         sum_op_gen = tf.summary.merge_all('gen')
@@ -255,8 +292,8 @@ def main(_):
     init_feed_dict = {inp: trainx_unl[:FLAGS.batch_size], unl: trainx_unl[:FLAGS.batch_size], is_training_pl: True}
 
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_epoch, summary_op=None, save_model_secs=0,
-                             init_op=op,init_feed_dict=init_feed_dict,max_to_keep=2000)
-    # sv.saver(max_to_keep = 2000)
+                             init_op=op,init_feed_dict=init_feed_dict)
+
     '''//////training //////'''
     print('start training')
     with sv.managed_session() as sess:
@@ -265,7 +302,6 @@ def main(_):
         print('Starting training from epoch :%d, step:%d \n'%(sess.run(global_epoch),sess.run(global_step)))
 
         writer = tf.summary.FileWriter(FLAGS.logdir, sess.graph)
-        sv.saver(max_to_keep=2000)
 
         while not sv.should_stop():
             epoch = sess.run(global_epoch)
@@ -323,10 +359,12 @@ def main(_):
                     writer.add_summary(sm, train_batch)
 
                 if (train_batch % FLAGS.freq_print == 0) & (train_batch != 0):
-                    ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
-                    ran_to = ran_from + FLAGS.batch_size
+                    # ran_from = np.random.randint(0, trainx_unl.shape[0] - FLAGS.batch_size)
+                    # ran_to = ran_from + FLAGS.batch_size
+                    ran_from = 0
+                    ran_to = FLAGS.batch_size
                     sm = sess.run(sum_op_im,
-                                  feed_dict={is_training_pl: True, unl: trainx_unl[ran_from:ran_to]})
+                                  feed_dict={is_training_pl: True, inp: testx[ran_from:ran_to]})
                     writer.add_summary(sm, train_batch)
 
                 train_batch += 1
@@ -367,7 +405,7 @@ def main(_):
             sess.run(inc_global_epoch)
 
             # save snapshots of model
-            if ((epoch % FLAGS.freq_save == 0)) | (epoch == FLAGS.epoch-1):
+            if ((epoch % FLAGS.freq_save == 0) & (epoch!=0) ) | (epoch == FLAGS.epoch-1):
                 string = 'model-' + str(epoch)
                 save_path = os.path.join(FLAGS.logdir, string)
                 sv.saver.save(sess, save_path)

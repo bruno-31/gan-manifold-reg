@@ -1,0 +1,6 @@
+model_checkpoint_path: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1399"
+all_model_checkpoint_paths: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1360"
+all_model_checkpoint_paths: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1370"
+all_model_checkpoint_paths: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1380"
+all_model_checkpoint_paths: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1390"
+all_model_checkpoint_paths: "/home/users/astar/i2r/foocs/exp_sat_200lbl/g1e-3_e20_s30/model-1399"
