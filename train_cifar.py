@@ -159,7 +159,7 @@ def main(_):
         m1 = tf.reduce_mean(layer_real, axis=0)
         m2 = tf.reduce_mean(layer_fake, axis=0)
 
-        manifold = tf.reduce_sum(tf.sqrt(tf.square(logits_gen - logits_gen_adv) + 1e-8), axis=1)
+        manifold = tf.sqrt(tf.reduce_sum(tf.square(logits_gen - logits_gen_adv)), axis=1)
         j_loss = tf.reduce_mean(manifold)
 
         if FLAGS.nabla == 1:
