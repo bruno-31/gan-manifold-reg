@@ -29,18 +29,17 @@ flags.DEFINE_boolean('validation', False, 'validation [False]')
 
 flags.DEFINE_boolean('augmentation', True, 'validation [False]')
 flags.DEFINE_integer('translate', 2, 'translate')
-flags.DEFINE_boolean('zca', False, 'validation [False]')
-flags.DEFINE_boolean('gan_aug', False, 'validation [False]')
-
 flags.DEFINE_integer('nabla', 1, 'choose regularization [1]')
 flags.DEFINE_float('gamma', 0.001, 'weight regularization')
 flags.DEFINE_float('epsilon', 20., 'displacement along data manifold')
 flags.DEFINE_float('eta', 1., 'perturbation latent code')
+
 flags.DEFINE_integer('freq_print', 10000, 'frequency image print tensorboard [10000]')
 flags.DEFINE_integer('step_print', 50, 'frequency scalar print tensorboard [50]')
-flags.DEFINE_integer('freq_test', 1, 'frequency test [500]')
+flags.DEFINE_integer('freq_test', 10, 'frequency test [500]')
 flags.DEFINE_integer('freq_save', 10, 'frequency saver epoch[50]')
 FLAGS = flags.FLAGS
+
 
 def get_getter(ema):
     def ema_getter(getter, name, *args, **kwargs):
@@ -58,25 +57,6 @@ def display_progression_epoch(j, id_max):
 
 def linear_decay(decay_start, decay_end, epoch):
     return min(-1 / (decay_end - decay_start) * epoch + 1 + decay_start / (decay_end - decay_start),1)
-
-
-def zca_whiten(X, Y, epsilon=1e-5):
-    X = X.reshape([-1, 32 * 32 * 3])
-    Y = Y.reshape([-1, 32 * 32 * 3])
-    # compute the covariance of the image data
-    cov = np.dot(X.T, X) / X.shape[0]
-    # singular value decomposition
-    U, S, V = np.linalg.svd(cov)
-    # build the ZCA matrix
-    zca_matrix = np.dot(U, np.dot(np.diag(1.0 / np.sqrt(S + epsilon)), U.T))
-
-    # transform the image data       zca_matrix is (3072,3072)
-    X_white = np.dot(X, zca_matrix)
-    Y_white = np.dot(Y, zca_matrix)
-
-    X_white = X_white.reshape(-1, 32, 32, 3)
-    Y_white = Y_white.reshape([-1, 32, 32, 3])
-    return X_white, Y_white
 
 
 def main(_):
@@ -97,30 +77,6 @@ def main(_):
     # load CIFAR-10
     trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
     testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
-
-    if FLAGS.zca:
-        print('Starting preprocessing')
-        begin = time.time()
-        m = np.mean(trainx, axis=0)
-        print(np.min(trainx), np.max(trainx))
-        trainx -= m
-        testx -= m
-        trainx, testx = zca_whiten(trainx, testx, epsilon=1e-8)
-        print('range zca:')
-        print(np.min(trainx), np.max(trainx))
-        print(np.min(testx), np.max(testx))
-        mix,max = np.min(np.concatenate([trainx,testx])),np.max(np.concatenate([trainx,testx]))
-        trainx-=mix
-        trainx/=(max-mix)
-        testx-=mix
-        testx/=(max-mix)
-        trainx=2.*trainx-1.
-        testx=2.*testx-1.
-        print('range rescaled')
-        print(np.min(trainx), np.max(trainx))
-        print(np.min(testx), np.max(testx))
-        print('Preprocessing done in : %ds' % (time.time() - begin))
-
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
 
@@ -148,12 +104,11 @@ def main(_):
     txs = np.concatenate(txs, axis=0)
     tys = np.concatenate(tys, axis=0)
 
-    print("Data:")
     print('train examples %d, batch %d, test examples %d, batch %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
-    print('histogram train', np.histogram(trainy, bins=10)[0])
-    print('histogram test ', np.histogram(testy, bins=10)[0])
-    print("histogram labeled", np.histogram(tys, bins=10)[0])
+    print('hist train', np.histogram(trainy, bins=10)[0])
+    print('hist test ', np.histogram(testy, bins=10)[0])
+    print("histlabeled", np.histogram(tys, bins=10)[0])
     print("")
 
     '''construct graph'''

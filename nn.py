@@ -86,7 +86,6 @@ def translate(inputs, vertical_offsets, horizontal_offsets, scale, padding_mode,
         with tf.name_scope(name) as scope:
             with tf.control_dependencies([tf.assert_less_equal(tf.abs(offsets), scale)]):
                 result = tf.expand_dims(tf.one_hot(scale - offsets, kernel_size), 1, name=scope)
-                print(result)
                 assert_shape(result, [None, 1, kernel_size])
                 return result
 
