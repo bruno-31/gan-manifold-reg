@@ -4,7 +4,7 @@ import time
 import numpy as np
 import tensorflow as tf
 import nn
-from data import cifar10_input
+from data import stl10_input
 from cifar_gan import discriminator, generator
 import sys
 import os
@@ -13,7 +13,7 @@ import os
 
 flags = tf.app.flags
 flags.DEFINE_integer('gpu', 0, 'gpu [0]')
-flags.DEFINE_integer('batch_size', 25, "batch size [25]")
+flags.DEFINE_integer('batch_size', 100, "batch size [25]")
 # flags.DEFINE_string('data_dir', '/tmp/data/cifar-10-python/','data directory')
 flags.DEFINE_string('data_dir', './data/cifar-10-python/','data directory')
 flags.DEFINE_string('logdir', './log/cifar', 'log directory')
@@ -26,6 +26,7 @@ flags.DEFINE_float('ma_decay', 0.9999, 'exponential moving average for inference
 flags.DEFINE_integer('decay_start', 1200, 'start learning rate decay [1200]')
 flags.DEFINE_integer('epoch', 1400, 'epochs [1400]')
 flags.DEFINE_boolean('validation', False, 'validation [False]')
+flags.DEFINE_boolean('resize', True, 'validation [False]')
 
 flags.DEFINE_boolean('augmentation', True, 'validation [False]')
 flags.DEFINE_integer('translate', 2, 'translate')
@@ -41,6 +42,7 @@ flags.DEFINE_integer('freq_test', 10, 'frequency test [500]')
 flags.DEFINE_integer('freq_save', 10, 'frequency saver epoch[50]')
 FLAGS = flags.FLAGS
 
+SHAPE=32
 
 def get_getter(ema):
     def ema_getter(getter, name, *args, **kwargs):
@@ -76,10 +78,16 @@ def main(_):
     rng_data = np.random.RandomState(rng.randint(0, 2**10))  # seed shuffling
 
     # load CIFAR-10
-    trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
-    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
-    trainx_unl = trainx.copy()
-    trainx_unl2 = trainx.copy()
+    # trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
+    # testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+
+    trainx = stl10_input.read_all_images(stl10_input.TRAINX_PATH)
+    testx = stl10_input.read_all_images(stl10_input.TESTX_PATH)
+    trainy = stl10_input.read_labels(stl10_input.TRAINY_PATH)
+    testy = stl10_input.read_labels(stl10_input.TESTY_PATH)
+
+    trainx_unl = stl10_input.read_all_images(stl10_input.UNL_PATH)[:50000]
+    trainx_unl2 = trainx_unl.copy()
 
     if FLAGS.validation:
         split = int(0.1 * trainx.shape[0])
@@ -107,15 +115,16 @@ def main(_):
 
     print('train examples %d, batch %d, test examples %d, batch %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
+    print('unl shape: ',trainx_unl.shape)
     print('hist train', np.histogram(trainy, bins=10)[0])
     print('hist test ', np.histogram(testy, bins=10)[0])
     print("histlabeled", np.histogram(tys, bins=10)[0])
     print("")
 
     '''construct graph'''
-    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='unlabeled_data_input_pl')
+    unl = tf.placeholder(tf.float32, [FLAGS.batch_size, 96, 96, 3], name='unlabeled_data_input_pl')
     is_training_pl = tf.placeholder(tf.bool, [], name='is_training_pl')
-    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 32, 32, 3], name='labeled_data_input_pl')
+    inp = tf.placeholder(tf.float32, [FLAGS.batch_size, 96, 96, 3], name='labeled_data_input_pl')
     lbl = tf.placeholder(tf.int32, [FLAGS.batch_size], name='lbl_input_pl')
     # scalar pl
     lr_pl = tf.placeholder(tf.float32, [], name='learning_rate_pl')
@@ -131,11 +140,16 @@ def main(_):
     gen_inp_pert = generator(random_z_pert, is_training=is_training_pl,  init=False, reuse=True)
     gen_adv = gen_inp + FLAGS.epsilon * tf.nn.l2_normalize(gen_inp_pert-gen_inp, dim=[1, 2, 3])
 
+    if FLAGS.resize:
+        print('resizing')
+        inp_ = tf.image.resize_images(inp, (SHAPE,SHAPE))
+        unl_ = tf.image.resize_images(unl, (SHAPE,SHAPE))
+
     if FLAGS.augmentation:
         print('augmentation')
-        inp_aug=nn.flip_randomly(inp, True, False, is_training_pl)
+        inp_aug=nn.flip_randomly(inp_, True, False, is_training_pl)
         inp_aug=nn.random_translate(inp_aug, FLAGS.translate, is_training_pl)
-        unl_aug=nn.flip_randomly(unl, True, False, is_training_pl)
+        unl_aug=nn.flip_randomly(unl_, True, False, is_training_pl)
         unl_aug=nn.random_translate(unl_aug, FLAGS.translate, is_training_pl)
     else:
         unl_aug=unl
@@ -207,7 +221,7 @@ def main(_):
         with tf.control_dependencies([dis_op]):
             train_dis_op = tf.group(maintain_averages_op)
 
-        logits_ema, _ = discriminator(inp, is_training_pl, getter=get_getter(ema), reuse=True)
+        logits_ema, _ = discriminator(inp_, is_training_pl, getter=get_getter(ema), reuse=True)
         correct_pred_ema = tf.equal(tf.cast(tf.argmax(logits_ema, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_ema = tf.reduce_mean(tf.cast(correct_pred_ema, tf.float32))
 
@@ -287,7 +301,7 @@ def main(_):
             # training
             for t in range(nr_batches_train):
 
-                display_progression_epoch(t, nr_batches_train)
+                # display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
 

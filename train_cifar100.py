@@ -4,7 +4,6 @@ import time
 import numpy as np
 import tensorflow as tf
 import nn
-from data import cifar10_input
 from cifar_gan import discriminator, generator
 import sys
 import os
@@ -12,6 +11,8 @@ import os
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 flags = tf.app.flags
+flags.DEFINE_string('classes', 'fine', 'fine / coarse')
+
 flags.DEFINE_integer('gpu', 0, 'gpu [0]')
 flags.DEFINE_integer('batch_size', 25, "batch size [25]")
 # flags.DEFINE_string('data_dir', '/tmp/data/cifar-10-python/','data directory')
@@ -75,9 +76,31 @@ def main(_):
     rng = np.random.RandomState(FLAGS.seed)  # seed labels
     rng_data = np.random.RandomState(rng.randint(0, 2**10))  # seed shuffling
 
-    # load CIFAR-10
-    trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
-    testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+    # trainx, trainy = cifar10_input._get_dataset(FLAGS.data_dir, 'train')  # float [-1 1] images
+    # testx, testy = cifar10_input._get_dataset(FLAGS.data_dir, 'test')
+    # load CIFAR-100
+    from keras.datasets import cifar100
+    if FLAGS.classes == 'coarse':
+        (trainx, trainy), (testx, testy) = cifar100.load_data(label_mode='coarse')
+        CLASSES = 10
+    else:
+        (trainx, trainy), (testx, testy) = cifar100.load_data(label_mode='fine')
+        CLASSES = 100
+
+    def rescale(x):
+        x=x/255
+        x=x*2.-1.
+        return x
+    trainx = rescale(trainx)
+    testx = rescale(testx)
+
+    print('')
+    print('min maxx' , np.min(trainx),np.max(trainx))
+    trainy = np.squeeze(trainy)
+    testy = np.squeeze(testy)
+
+    print(testy.shape)
+    print(trainy.shape)
     trainx_unl = trainx.copy()
     trainx_unl2 = trainx.copy()
 
@@ -99,7 +122,7 @@ def main(_):
     print('seed trainy:',trainy)
     txs = []
     tys = []
-    for j in range(10):
+    for j in range(CLASSES):
         txs.append(trainx[trainy == j][:FLAGS.labeled])
         tys.append(trainy[trainy == j][:FLAGS.labeled])
     txs = np.concatenate(txs, axis=0)
@@ -107,9 +130,9 @@ def main(_):
 
     print('train examples %d, batch %d, test examples %d, batch %d' \
           % (trainx.shape[0], nr_batches_train, testx.shape[0], nr_batches_test))
-    print('hist train', np.histogram(trainy, bins=10)[0])
-    print('hist test ', np.histogram(testy, bins=10)[0])
-    print("histlabeled", np.histogram(tys, bins=10)[0])
+    print('hist train', np.histogram(trainy, bins=CLASSES)[0])
+    print('hist test ', np.histogram(testy, bins=CLASSES)[0])
+    print("histlabeled", np.histogram(tys, bins=CLASSES)[0])
     print("")
 
     '''construct graph'''
@@ -141,11 +164,11 @@ def main(_):
         unl_aug=unl
         inp_aug=inp
 
-    discriminator(unl, is_training_pl, init=True)
-    logits_lab, _ = discriminator(inp_aug, is_training_pl, init=False, reuse=True)
-    logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False, reuse=True)
-    logits_unl, layer_real = discriminator(unl_aug, is_training_pl, init=False, reuse=True)
-    logits_gen_adv, _ = discriminator(gen_adv, is_training_pl, init=False, reuse=True)
+    discriminator(unl, is_training_pl, init=True,classes=CLASSES)
+    logits_lab, _ = discriminator(inp_aug, is_training_pl, init=False, reuse=True, classes=CLASSES)
+    logits_gen, layer_fake = discriminator(gen_inp, is_training_pl, init=False, reuse=True,classes=CLASSES)
+    logits_unl, layer_real = discriminator(unl_aug, is_training_pl, init=False, reuse=True,classes=CLASSES)
+    logits_gen_adv, _ = discriminator(gen_adv, is_training_pl, init=False, reuse=True,classes=CLASSES)
 
     with tf.name_scope('loss_functions'):
         # discriminator
@@ -170,7 +193,7 @@ def main(_):
         elif FLAGS.nabla == 2:
             pz = tf.random_normal([FLAGS.batch_size, 32, 32, 3])
             pert_n = FLAGS.epsilon * tf.nn.l2_normalize(pz, dim=[1,2,3])
-            logits_unl_pert, layer_real = discriminator(unl+pert_n, is_training_pl, init=False, reuse=True)
+            logits_unl_pert, layer_real = discriminator(unl+pert_n, is_training_pl, init=False, reuse=True, classes=CLASSES)
             ambient = tf.reduce_sum(tf.sqrt(tf.square(logits_unl - logits_unl_pert) + 1e-8), axis=1)
             ambient_loss = tf.reduce_mean(ambient)
             print('ambient enabled')
@@ -207,7 +230,7 @@ def main(_):
         with tf.control_dependencies([dis_op]):
             train_dis_op = tf.group(maintain_averages_op)
 
-        logits_ema, _ = discriminator(inp, is_training_pl, getter=get_getter(ema), reuse=True)
+        logits_ema, _ = discriminator(inp, is_training_pl, getter=get_getter(ema), reuse=True, classes=CLASSES)
         correct_pred_ema = tf.equal(tf.cast(tf.argmax(logits_ema, 1), tf.int32), tf.cast(lbl, tf.int32))
         accuracy_ema = tf.reduce_mean(tf.cast(correct_pred_ema, tf.float32))
 
@@ -287,7 +310,7 @@ def main(_):
             # training
             for t in range(nr_batches_train):
 
-                display_progression_epoch(t, nr_batches_train)
+                # display_progression_epoch(t, nr_batches_train)
                 ran_from = t * FLAGS.batch_size
                 ran_to = (t + 1) * FLAGS.batch_size
 

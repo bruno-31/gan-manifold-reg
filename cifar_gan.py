@@ -20,7 +20,7 @@ def gaussian_noise_layer(input_layer, std):
     return input_layer + noise
 
 
-def discriminator(inp, is_training, init=False, reuse=False, getter =None):
+def discriminator(inp, is_training, init=False, reuse=False, getter =None, classes=10):
     with tf.variable_scope('discriminator_model', reuse=reuse,custom_getter=getter):
         counter = {}
         x = tf.reshape(inp, [-1, 32, 32, 3])
@@ -48,7 +48,7 @@ def discriminator(inp, is_training, init=False, reuse=False, getter =None):
 
         intermediate_layer = x
 
-        logits = nn.dense(x, 10, nonlinearity=None, init=init, counters=counter, init_scale=0.1)
+        logits = nn.dense(x, classes, nonlinearity=None, init=init, counters=counter, init_scale=0.1)
 
         return logits, intermediate_layer
 
